@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() { return request.auth != null && request.auth.token.email == 'admin@piutang.app'; }
+    function isStaff() { return request.auth != null && request.auth.token.email == 'petugas@piutang.app'; }
+
+    // Invoice: petugas boleh membuat invoice baru dan menambah pembayaran (hanya field "pays"). Admin boleh semuanya.
+    match /invoices/{id} {
+      allow read: if isAdmin() || isStaff();
+      allow create: if isAdmin() || isStaff();
+      allow update: if isAdmin() || (isStaff() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pays']));
+      allow delete: if isAdmin();
+    }
+    // Pelanggan: dibuat/diperbarui otomatis saat invoice disimpan. Hanya admin yang boleh menghapus.
+    match /customers/{id} {
+      allow read, create, update: if isAdmin() || isStaff();
+      allow delete: if isAdmin();
+    }
+    // Berkas invoice dan bukti transfer: petugas hanya boleh menambah.
+    match /files/{id} {
+      allow read, create: if isAdmin() || isStaff();
+      allow update, delete: if isAdmin();
+    }
+  }
+}

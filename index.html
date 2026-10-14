@@ -4,7 +4,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Piutang"><meta name="theme-color" content="#2c4e78">
 <title>Laporan Piutang</title>
-<link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-180.png"><link rel="icon" href="icon-192.png"><meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest"><script src="config.js"></script><link rel="apple-touch-icon" href="icon-180.png"><link rel="icon" href="icon-192.png"><meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{color-scheme:light dark;--bg:#EEF0F4;--cd:#fff;--tx:#14213D;--mu:#5B6578;--ln:#D9DEE7;--pr:#2c4e78;--pt:#fff;--cb:#1b2430;--ct:#fff;--o:#8A4B08;--ob:#FDEBD3;--g:#0B5D47;--gb:#D8F0E6}
@@ -43,23 +43,34 @@ input[type=date].in::-webkit-datetime-edit{padding:0}
 .pill{display:inline-block;border:2.5px solid currentColor;border-radius:999px;padding:4px 14px;font-weight:700;font-size:15px;margin:10px 0 6px}
 .blk{display:block;width:100%;margin-top:10px}
 #tab button{font-size:13px;font-weight:600}#tab .on{color:var(--pr)}
+#login{position:fixed;inset:0;z-index:40;background:var(--bg);display:none;overflow:auto;padding:max(24px,env(safe-area-inset-top)) 20px 24px}
 #toast{position:fixed;inset:auto 16px 90px 16px;margin:0;width:auto;background:var(--pr);color:var(--pt);border:0;border-radius:12px;padding:12px 14px;font-size:14px}
 #busy{position:fixed;inset:0;background:#000a;color:#fff;display:none;align-items:center;justify-content:center;z-index:9;font-size:17px}
 </style></head><body>
 <main id="v"></main><div id="busy">Memproses…</div>
 <nav id="tab"><button data-t="inv">Invoice</button><button data-t="lap">Laporan</button><button data-t="cus">Pelanggan</button></nav>
-<dialog id="dlg"></dialog><dialog id="dlg2"></dialog><div id="toast" popover="manual"></div><input id="cam" type="file" accept="image/*" capture="environment" hidden><input id="pcam" type="file" accept="image/*" capture="environment" hidden><input id="pfil" type="file" accept="image/*,application/pdf,.pdf" hidden><input id="fil" type="file" accept="image/*,application/pdf,text/plain,.pdf,.txt" multiple hidden>
+<dialog id="dlg"></dialog><dialog id="dlg2"></dialog><div id="login"><div style="max-width:420px;margin:8vh auto 0"><div class=hero><small>Laporan Piutang</small><div class=big>Masuk</div><div class=ln><span>Masukkan kode tim Anda</span></div></div>
+<label class=lb for=lg_code>Kode tim</label><input id=lg_code class=in type=password autocomplete=current-password placeholder="Kode admin atau kode petugas" onkeydown="if(event.key=='Enter')login()">
+<div id=lg_err class=w style="display:none"></div><button class=add id=lg_btn onclick="login()">Masuk</button></div></div><div id="toast" popover="manual"></div><input id="cam" type="file" accept="image/*" capture="environment" hidden><input id="pcam" type="file" accept="image/*" capture="environment" hidden><input id="pfil" type="file" accept="image/*,application/pdf,.pdf" hidden><input id="fil" type="file" accept="image/*,application/pdf,text/plain,.pdf,.txt" multiple hidden>
 <script>
-const $=s=>document.querySelector(s),DB=JSON.parse(localStorage.db||'{"inv":[],"cus":{}}'),store=()=>localStorage.db=JSON.stringify(DB);
+const $=s=>document.querySelector(s),DB={inv:[],cus:{}};
 const rp=n=>'Rp '+String(n).replace(/\B(?=(\d{3})+(?!\d))/g,'.'),sd=d=>{const[y,m,x]=d.split('-');return +x+'/'+ +m},sum=(l,f=i=>i.amt)=>l.reduce((s,i)=>s+f(i),0);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ST={b:'Belum bayar',c:'Lunas · Cash',t:'Lunas · Transfer',m:'Lunas · Campuran'},iso=d=>new Date(d.getTime()+7*36e5).toISOString().slice(0,10);
 const longDate=()=>new Date().toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'Asia/Jakarta'});
 const idb=new Promise((ok,no)=>{const r=indexedDB.open('piutang',1);r.onupgradeneeded=()=>r.result.createObjectStore('proof');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
 const P=async(m,f)=>{const d=await idb;return new Promise((ok,no)=>{const t=d.transaction('proof',m),r=f(t.objectStore('proof'));t.oncomplete=()=>ok(r.result);t.onerror=()=>no(t.error)})};
-const putProof=(n,v)=>P('readwrite',s=>s.put(v,n)),getProof=n=>P('readonly',s=>s.get(n)),delProof=n=>P('readwrite',s=>s.delete(n));
+let ROLE='',FS=null,AU=null,UNSUB=[];
+const ADMIN=()=>ROLE=='admin',idOf=s=>String(s).replace(/\//g,'_'),uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7),
+  inv$=()=>FS.collection('invoices'),cus$=()=>FS.collection('customers'),fil$=()=>FS.collection('files'),
+  fail=e=>say('Gagal menyimpan ke cloud: '+(e.code=='permission-denied'?'tidak ada izin untuk tindakan ini.':e.message));
+const b64=b=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(b)});
+async function putProof(k,v){const data=await b64(v.blob);if(data.length>950000)throw new Error('Berkas terlalu besar untuk disimpan ke cloud (maksimal sekitar 600 KB).');fil$().doc(idOf(k)).set({name:v.name||'',type:v.type||'',data}).catch(fail)}
+async function getProof(k){const d=await fil$().doc(idOf(k)).get();if(!d.exists)return null;const x=d.data();return{name:x.name,type:x.type,blob:await(await fetch(x.data)).blob()}}
+const delProof=k=>fil$().doc(idOf(k)).delete().catch(()=>{});
+function refresh(){const a=document.activeElement;if(a&&a.tagName=='INPUT'&&a.closest('#v')&&$('#list'))$('#list').innerHTML=listHTML();else render()}
 addEventListener('unhandledrejection',e=>say(e.reason?.message||e.reason));
-const LIBS={pdf:['https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js','https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'],xls:['https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js'],pdfjs:['https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'],ocr:['https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js']},LD={};
+const LIBS={pdf:['https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js','https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'],xls:['https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js'],pdfjs:['https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'],ocr:['https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js'],fb:['https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js','https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js','https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js']},LD={};
 const load=u=>LD[u]||(LD[u]=new Promise((ok,no)=>{const e=document.createElement('script');e.src=u;e.onload=ok;e.onerror=()=>{delete LD[u];no(new Error('Gagal memuat komponen. Periksa koneksi internet.'))};document.head.append(e)}));
 const need=async k=>{for(const u of LIBS[k])await load(u)};
 function say(m){const t=$('#toast');t.textContent=m;try{t.hidePopover();t.showPopover()}catch(_){}clearTimeout(say.t);say.t=setTimeout(()=>{try{t.hidePopover()}catch(_){}},5000)}
@@ -85,7 +96,6 @@ const paidOf=i=>(i.pays||[]).reduce((s,p)=>s+p.a,0),sisa=i=>Math.max(0,i.amt-pai
 function calc(i){i.pays=i.pays||[];const ms=[...new Set(i.pays.map(p=>p.m))];i.st=sisa(i)>0?'b':ms.length>1?'m':ms[0]||'b'}
 const addDays=(d,n)=>new Date(Date.parse(d+'T00:00:00Z')+n*864e5).toISOString().slice(0,10);
 const dueOf=i=>i.term>0?addDays(i.date,i.term):'',daysLeft=i=>{const d=dueOf(i);return d?Math.round((Date.parse(d+'T00:00:00Z')-Date.parse(iso(new Date())+'T00:00:00Z'))/864e5):null};
-DB.inv.forEach(i=>{if(!i.pays)i.pays=i.st&&i.st!='b'?[{d:i.date,m:i.st,a:i.amt,note:i.note||'',pk:i.proof?i.n:''}]:[];i.term=i.term||0;calc(i)});
 
 /* ---------- Pembaca struk (OCR -> data) ---------- */
 const num=s=>parseRp(s);
@@ -182,19 +192,22 @@ function fillCus(n){const c=DB.cus[n.trim().toUpperCase()];if(c){if(!$('#f_addr'
 async function saveInv(edit){
   const v=id=>$('#f_'+id)?.value.trim()||'',i={n:v('n').toUpperCase(),name:v('name').toUpperCase(),addr:v('addr'),area:v('area'),date:v('d'),amt:parseRp(v('amt')),term:Math.max(0,+v('term')||0)},st=v('st'),note=v('note');
   if(!i.n||!i.name||!i.area||!i.amt||!i.date||(!edit&&!st))return say('Lengkapi nomor invoice, nama, area, jumlah, dan status bayar.');
-  const k=DB.inv.findIndex(x=>x.n==i.n),old=DB.inv[k];
-  if(k>=0&&!edit&&!await ask(`Invoice ${i.n} sudah ada. Perbarui yang ada?`))return;
-  i.pays=old?.pays||[];i.src=old?.src||0;
+  const old=DB.inv.find(x=>x.n==i.n);
+  if(edit&&!ADMIN())return say('Hanya admin yang bisa mengubah invoice.');
+  if(old&&!edit){if(!ADMIN())return say(`Invoice ${i.n} sudah ada. Hanya admin yang bisa memperbaruinya.`);if(!await ask(`Invoice ${i.n} sudah ada. Perbarui yang ada?`))return}
   if(old&&i.amt<paidOf(old))return say(`Jumlah invoice tidak boleh lebih kecil dari yang sudah dibayar (${rp(paidOf(old))}).`);
-  if(!old&&(st=='c'||st=='t')){const p={d:i.date,m:st,a:i.amt,note};
-    if(st=='t'){if(PF){p.pk='p:'+i.n+':'+Date.now();await putProof(p.pk,await shrink(PF))}else if(!await ask('Transfer tanpa bukti. Simpan tanpa bukti transfer?'))return}
-    i.pays=[p]}
-  if(SF){await putProof('src:'+i.n,await shrink(SF));i.src=1}
-  calc(i);k>=0?DB.inv[k]=i:DB.inv.push(i);
-  DB.cus[i.name]={addr:i.addr||DB.cus[i.name]?.addr||'',area:i.area,term:i.term};area=localStorage.area=i.area;localStorage.term=i.term||'';
-  store();$('#dlg').close();render()}
-async function delInv(n){if(await ask('Hapus invoice '+n+'?')){const o=DB.inv.find(i=>i.n==n);(o?.pays||[]).forEach(p=>p.pk&&delProof(p.pk));DB.inv=DB.inv.filter(i=>i.n!=n);delProof('src:'+n);store();$('#dlg').close();render()}}
-function edit(n){const i=DB.inv.find(x=>x.n==n);openForm({...i,issues:[]},1)}
+  try{
+    if(SF){await putProof('src:'+i.n,await shrink(SF));i.src=1}else i.src=old?.src||0;
+    let pays=old?.pays||[];
+    if(!old&&(st=='c'||st=='t')){const p={id:uid(),d:i.date,m:st,a:i.amt,note};
+      if(st=='t'){if(PF){p.pk='p:'+i.n+':'+Date.now();await putProof(p.pk,await shrink(PF))}else if(!await ask('Transfer tanpa bukti. Simpan tanpa bukti transfer?'))return}
+      pays=[p]}
+    inv$().doc(idOf(i.n)).set(old?i:{...i,pays},{merge:true}).catch(fail);      // invoice yang sudah ada: daftar pembayaran tidak ditimpa
+    cus$().doc(idOf(i.name)).set({nm:i.name,addr:i.addr||DB.cus[i.name]?.addr||'',area:i.area,term:i.term},{merge:true}).catch(fail);
+    area=localStorage.area=i.area;localStorage.term=i.term||'';$('#dlg').close()
+  }catch(e){say(e.message)}}
+async function delInv(n){if(!ADMIN())return;if(await ask('Hapus invoice '+n+'?')){const o=DB.inv.find(i=>i.n==n);(o?.pays||[]).forEach(p=>p.pk&&delProof(p.pk));delProof('src:'+n);inv$().doc(idOf(n)).delete().catch(fail);$('#dlg').close()}}
+function edit(n){if(!ADMIN())return say('Hanya admin yang bisa mengubah invoice.');const i=DB.inv.find(x=>x.n==n);openForm({...i,issues:[]},1)}
 
 /* ---------- Pembayaran & bukti transfer ---------- */
 const proofBox=(has,show,fn)=>`<div id=pbox style="display:${show?'block':'none'}"><label>Bukti transfer (foto atau berkas)</label><div id=pinfo><small>${fn?'✓ '+esc(fn):has?'✓ Bukti sudah dilampirkan. Pilih lagi untuk mengganti.':'Belum ada bukti.'}</small></div><div class=bar style="position:static;padding:4px 0"><button class=s onclick="$('#pcam').click()">📷 Foto</button><button class=s onclick="$('#pfil').click()">📁 Berkas</button></div></div>`;
@@ -206,12 +219,13 @@ $('#pcam').onchange=$('#pfil').onchange=async e=>{const f=e.target.files[0];e.ta
     else if(!am.value)am.value=pp.amt;else if(parseRp(am.value)!=pp.amt)w=`<div class=w>⚠ Nominal bukti ${rp(pp.amt)} berbeda dari invoice ${rp(parseRp(am.value))}.</div>`;hint(am)}
   inf.innerHTML='<small>✓ '+esc(f.name)+'</small>'+w};
 async function shrink(f){
-  if(f.type.startsWith('image/')){const bm=await createImageBitmap(f),k=Math.min(1,1400/Math.max(bm.width,bm.height)),c=document.createElement('canvas');c.width=bm.width*k;c.height=bm.height*k;c.getContext('2d').drawImage(bm,0,0,c.width,c.height);
-    return{name:f.name,type:'image/jpeg',blob:await new Promise(r=>c.toBlob(r,'image/jpeg',.75))}}
-  if(f.size>5e6)throw new Error('Berkas terlalu besar (maksimal 5 MB).');
+  if(f.type.startsWith('image/')){const bm=await createImageBitmap(f);
+    for(const[mx,q]of[[1400,.75],[1200,.6],[1000,.5],[800,.5]]){const k=Math.min(1,mx/Math.max(bm.width,bm.height)),c=document.createElement('canvas');c.width=bm.width*k;c.height=bm.height*k;c.getContext('2d').drawImage(bm,0,0,c.width,c.height);
+      const b=await new Promise(r=>c.toBlob(r,'image/jpeg',q));if(b.size<=600e3||mx==800)return{name:f.name,type:'image/jpeg',blob:b}}}
+  if(f.size>600e3)throw new Error('Berkas terlalu besar (maksimal sekitar 600 KB). Gunakan foto atau kecilkan berkasnya.');
   return{name:f.name,type:f.type||'application/pdf',blob:f}}
 function payForm(n,file,pp){const i=DB.inv.find(x=>x.n==n);PF=file||null;SF=null;const s=sisa(i);PA=s;const t=!!file,a=pp?.amt&&pp.amt<=s?pp.amt:s;
-  const hist=i.pays.map((p,k)=>`<div class=it><div>${dmy(p.d)} · ${p.m=='t'?'Transfer':'Cash'}<small>${esc(p.note||'')}</small></div><div class=r><span class=m>${rp(p.a)}</span><br>${p.pk?`<button class=sm onclick="viewFile('${esc(p.pk)}','Bukti ${esc(n)}')">🧾 Bukti</button>`:''}<button class=sm style="color:#c0392b" onclick="delPay('${esc(n)}',${k})">Hapus</button></div></div>`).join('');
+  const hist=i.pays.map((p,k)=>`<div class=it><div>${dmy(p.d)} · ${p.m=='t'?'Transfer':'Cash'}<small>${esc(p.note||'')}</small></div><div class=r><span class=m>${rp(p.a)}</span><br>${p.pk?`<button class=sm onclick="viewFile('${esc(p.pk)}','Bukti ${esc(n)}')">🧾 Bukti</button>`:''}${ADMIN()?`<button class=sm style="color:#c0392b" onclick="delPay('${esc(n)}',${k})">Hapus</button>`:''}</div></div>`).join('');
   $('#dlg').innerHTML=`<h2 style="margin:0 0 4px">Pembayaran ${esc(n)}</h2><small>${esc(i.name)} · Total ${rp(i.amt)}${dueOf(i)?' · Jatuh tempo '+dmy(dueOf(i)):''}</small>
   <div class=card style="display:block">Terbayar <b class="m g" style="display:inline;font-size:15px">${rp(paidOf(i))}</b> · Sisa <b class="m o" style="display:inline;font-size:15px">${rp(s)}</b></div>
   ${hist||'<small>Belum ada pembayaran.</small>'}
@@ -226,11 +240,12 @@ function payForm(n,file,pp){const i=DB.inv.find(x=>x.n==n);PF=file||null;SF=null
   $('#dlg').showModal();if(s>0)hint($('#p_a'))}
 async function addPay(n){const i=DB.inv.find(x=>x.n==n),a=parseRp($('#p_a').value),m=$('#p_m').value,s=sisa(i);
   if(!a)return say('Isi jumlah pembayaran.');if(a>s)return say(`Jumlah melebihi sisa ${rp(s)}.`);
-  const p={d:$('#p_d').value||iso(new Date()),m,a,note:$('#p_note').value.trim()};
-  if(m=='t'){if(PF){p.pk='p:'+n+':'+Date.now();await putProof(p.pk,await shrink(PF))}else if(!await ask('Transfer tanpa bukti. Simpan tanpa bukti transfer?'))return}
-  i.pays.push(p);calc(i);store();render();payForm(n)}
-async function delPay(n,k){const i=DB.inv.find(x=>x.n==n);if(!await ask('Hapus pembayaran ini?'))return;
-  const p=i.pays[k];if(p.pk)delProof(p.pk);i.pays.splice(k,1);calc(i);store();render();payForm(n)}
+  const p={id:uid(),d:$('#p_d').value||iso(new Date()),m,a,note:$('#p_note').value.trim()};
+  try{if(m=='t'){if(PF){p.pk='p:'+n+':'+Date.now();await putProof(p.pk,await shrink(PF))}else if(!await ask('Transfer tanpa bukti. Simpan tanpa bukti transfer?'))return}}catch(e){return say(e.message)}
+  inv$().doc(idOf(n)).update({pays:firebase.firestore.FieldValue.arrayUnion(p)}).catch(fail);   // aman bila dua orang membayar bersamaan
+  i.pays.push(p);calc(i);refresh();payForm(n)}
+async function delPay(n,k){if(!ADMIN())return;const i=DB.inv.find(x=>x.n==n);if(!await ask('Hapus pembayaran ini?'))return;
+  const p=i.pays[k];if(p.pk)delProof(p.pk);i.pays.splice(k,1);calc(i);inv$().doc(idOf(n)).update({pays:i.pays}).catch(fail);refresh();payForm(n)}
 async function viewFile(key,title){const p=await getProof(key);if(!p)return say('Berkas tidak ditemukan.');const img=p.type.startsWith('image/');let body;
   if(img){const u=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(p.blob)});body=`<img src="${u}" style="max-width:100%;border-radius:8px">`}
   else body=`<button class=p id=vsave>Simpan atau buka ${esc(p.name||'berkas')}</button>`;
@@ -265,8 +280,8 @@ function detail(n){const i=DB.inv.find(x=>x.n==n),[l,c]=stat(i);
   <div class=card style="display:block"><div class=row2><span>Total</span><b class=m>${rp(i.amt)}</b></div><div class=row2><span>Terbayar</span><b class=m style="color:var(--g)">${rp(paidOf(i))}</b></div><div class=row2><span>Sisa</span><b class=m style="color:var(--o)">${rp(sisa(i))}</b></div>${dueLine(i)?`<div class=sb style="margin-top:6px">${dueLine(i)}</div>`:''}</div>
   <button class="p blk" style="height:52px" onclick="payForm('${esc(n)}')">${i.st=='b'&&!paidOf(i)?'Bayar':'Pembayaran / cicilan'}</button>
   ${i.src?`<button class="s blk" onclick="viewSrc('${esc(n)}')">📄 Lihat invoice</button>`:''}
-  <button class="s blk" onclick="edit('${esc(n)}')">Ubah invoice</button>
-  <button class="s blk" style="color:#c0392b;border-color:#c0392b" onclick="delInv('${esc(n)}')">Hapus invoice</button>
+  ${ADMIN()?`<button class="s blk" onclick="edit('${esc(n)}')">Ubah invoice</button>`:''}
+  ${ADMIN()?`<button class="s blk" style="color:#c0392b;border-color:#c0392b" onclick="delInv('${esc(n)}')">Hapus invoice</button>`:''}
   <button class="s blk" style="border-color:transparent" onclick="$('#dlg').close()">Tutup</button>`;$('#dlg').showModal()}
 
 function build(a,f,t){const x=DB.inv.filter(i=>i.area.toLowerCase()==a.toLowerCase()),d=(p,q)=>q.amt-p.amt||p.n.localeCompare(q.n),ds=(p,q)=>sisa(q)-sisa(p)||p.n.localeCompare(q.n),
@@ -285,21 +300,35 @@ function vLap(){const areas=[...new Set(DB.inv.map(i=>i.area))].sort();if(!areas
 const K=()=>Object.keys(DB.cus).sort();
 function vCus(){const ks=K(),hot=ks.filter(n=>sum(DB.inv.filter(i=>i.name==n&&i.st=='b'),sisa)>0).length;
   return `<div class=hero><small>Total pelanggan</small><div class="big m">${ks.length}</div><div class=ln><span>${hot} masih punya tagihan</span></div></div>
-  <label class=lb for=qc>Cari pelanggan</label><input id=qc class="in sr" placeholder="Nama atau alamat" value="${esc(QC)}" oninput="QC=this.value;$('#clist').innerHTML=clist()"><div id=clist>${clist()}</div>`}
+  <label class=lb for=qc>Cari pelanggan</label><input id=qc class="in sr" placeholder="Nama atau alamat" value="${esc(QC)}" oninput="QC=this.value;$('#clist').innerHTML=clist()"><div id=clist>${clist()}</div>${acct()}`}
 const clist=()=>{const l=K().map((n,k)=>[n,k]).filter(([n])=>!QC||(n+' '+(DB.cus[n].addr||'')).toLowerCase().includes(QC.toLowerCase()));
   return l.map(([n,k])=>{const c=DB.cus[n],t=sum(DB.inv.filter(i=>i.name==n&&i.st=='b'),sisa),cn=DB.inv.filter(i=>i.name==n).length;
     return `<div class=inv style="--ac:${t?'#a06a21':'#2c4e78'}" onclick="custMenu(${k})"><div class=row2><b class=nm>${esc(tc(n))}</b><b class=am>${t?rp(t):''}</b></div><div class=sb>${esc([c.addr,c.area].filter(Boolean).join(', '))||'-'}</div><div class=sb>${cn} invoice${c.term?' · tempo '+c.term+' hari':''}</div></div>`}).join('')||'<small>Pelanggan dibuat otomatis saat invoice disimpan.</small>'};
-function custMenu(k){const n=K()[k],c=DB.cus[n];
+function custMenu(k){if(!ADMIN())return;const n=K()[k],c=DB.cus[n];
   $('#dlg').innerHTML=`<h2 style="margin:0">${esc(tc(n))}</h2><div class=sb>${esc([c.addr,c.area].filter(Boolean).join(', '))}</div>
   <button class="p blk" style="height:52px" onclick="custForm(${k})">Ubah pelanggan</button>
   <button class="s blk" style="color:#c0392b;border-color:#c0392b" onclick="delCus(${k})">Hapus pelanggan</button>
   <button class="s blk" style="border-color:transparent" onclick="$('#dlg').close()">Tutup</button>`;$('#dlg').showModal()}
 function custForm(k){const n=K()[k],c=DB.cus[n];$('#dlg').innerHTML=`<h2 style="margin:0 0 8px">Ubah Pelanggan</h2><label>Nama</label><input class=in id="c_n" value="${esc(n)}" autocapitalize=characters><label>Alamat</label><input class=in id="c_a" value="${esc(c.addr)}"><label>Area / rute</label><input class=in id="c_r" value="${esc(c.area)}"><label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type=checkbox id="c_all" checked>Terapkan alamat dan area ke semua invoice pelanggan ini</label><div class=bar style="position:static"><button class=s onclick="$('#dlg').close()">Batal</button><button class=p onclick="saveCus(${k})">Simpan</button></div>`;$('#dlg').showModal()}
-async function saveCus(k){const o=K()[k],n=$('#c_n').value.trim().toUpperCase(),a=$('#c_a').value.trim(),r=$('#c_r').value.trim();
+async function saveCus(k){if(!ADMIN())return;const o=K()[k],n=$('#c_n').value.trim().toUpperCase(),a=$('#c_a').value.trim(),r=$('#c_r').value.trim();
   if(!n)return say('Nama tidak boleh kosong.');if(n!=o&&DB.cus[n]&&!await ask(`Pelanggan ${n} sudah ada. Gabungkan?`))return;
-  delete DB.cus[o];DB.cus[n]={addr:a,area:r};
-  DB.inv.forEach(i=>{if(i.name==o||i.name==n){i.name=n;if($('#c_all').checked){i.addr=a||i.addr;if(r)i.area=r}}});store();$('#dlg').close();render()}
-async function delCus(k){const n=K()[k];if(await ask(`Hapus pelanggan ${n}? Invoice tidak ikut terhapus.`)){delete DB.cus[n];store();$('#dlg').close();render()}}
+  const b=FS.batch(),t=DB.cus[n]?.term??DB.cus[o]?.term??0;
+  if(n!=o)b.delete(cus$().doc(idOf(o)));
+  b.set(cus$().doc(idOf(n)),{nm:n,addr:a,area:r,term:t});
+  DB.inv.forEach(i=>{if(i.name==o||i.name==n){const u={};if(i.name!=n)u.name=n;if($('#c_all').checked){if(a)u.addr=a;if(r)u.area=r}if(Object.keys(u).length)b.update(inv$().doc(idOf(i.n)),u)}});
+  b.commit().catch(fail);$('#dlg').close()}
+async function delCus(k){if(!ADMIN())return;const n=K()[k];if(await ask(`Hapus pelanggan ${n}? Invoice tidak ikut terhapus.`)){cus$().doc(idOf(n)).delete().catch(fail);$('#dlg').close()}}
+const localHas=()=>{try{return(JSON.parse(localStorage.db||'null')?.inv||[]).length>0}catch(_){return false}};
+const acct=()=>`<div class=card style="display:block;margin-top:18px"><div class=row2><span>Masuk sebagai</span><b>${ADMIN()?'Admin':'Petugas'}</b></div>${ADMIN()&&localHas()?`<button class="s blk" onclick="importLocal()">Unggah data dari perangkat ini ke cloud</button>`:''}<button class="s blk" onclick="AU.signOut()">Keluar</button></div>`;
+async function importLocal(){const o=JSON.parse(localStorage.db||'null');if(!o)return;
+  if(!await ask(`Unggah ${o.inv.length} invoice dan ${Object.keys(o.cus||{}).length} pelanggan dari perangkat ini ke cloud?`))return;wait(1,'Mengunggah data…');
+  try{for(const i0 of o.inv){const i={...i0};if(!i.pays)i.pays=i.st&&i.st!='b'?[{d:i.date,m:i.st,a:i.amt,note:i.note||'',pk:i.proof?i.n:''}]:[];
+      i.pays=i.pays.map((p,k)=>({...p,id:p.id||uid()+k}));i.term=i.term||0;i.src=i.src||0;delete i.st;delete i.proof;delete i.note;await inv$().doc(idOf(i.n)).set(i)}
+    for(const[n,c]of Object.entries(o.cus||{}))await cus$().doc(idOf(n)).set({nm:n,addr:c.addr||'',area:c.area||'',term:c.term||0},{merge:true});
+    const keys=await P('readonly',s=>s.getAllKeys());
+    for(const k of keys){try{const v=await P('readonly',s=>s.get(k));if(v&&v.blob){const data=await b64(v.blob);if(data.length<=950000)await fil$().doc(idOf(k)).set({name:v.name||'',type:v.type||'',data})}}catch(_){}}
+    localStorage.db_backup=localStorage.db;delete localStorage.db;wait(0);say('Data berhasil diunggah ke cloud.');render()
+  }catch(e){wait(0);say('Gagal mengunggah: '+e.message)}}
 function render(){if(tab=='lap'){need('pdf').catch(()=>{});need('xls').catch(()=>{})}$('#v').innerHTML={inv:vInv,lap:vLap,cus:vCus}[tab]();document.querySelectorAll('#tab button').forEach(b=>b.classList.toggle('on',b.dataset.t==tab))}
 document.querySelectorAll('#tab button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;render()});
 $('#cam').onchange=$('#fil').onchange=e=>{const fs=[...e.target.files];e.target.value='';if(!busy())intake(fs)};$('#dlg').addEventListener('close',nextDraft);
@@ -372,5 +401,21 @@ async function sendFiles(mode){
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 navigator.storage?.persist?.();
 if(/iPhone|iPad/.test(navigator.userAgent)&&!navigator.standalone&&!localStorage.tip){localStorage.tip=1;setTimeout(()=>say('Pasang sebagai aplikasi: ketuk tombol Bagikan di Safari, lalu Tambah ke Layar Utama.'),2000)}
-render();
+async function boot(){render();
+  if(!window.FB_CONFIG||!FB_CONFIG.apiKey||/^ISI/.test(FB_CONFIG.apiKey)){showLogin('Firebase belum diatur. Isi file config.js dengan data proyek Firebase Anda (lihat PANDUAN-FIREBASE.md).',1);return}
+  try{await need('fb')}catch(e){showLogin('Tidak bisa memuat Firebase. Periksa koneksi internet.',1);return}
+  firebase.initializeApp(FB_CONFIG);AU=firebase.auth();FS=firebase.firestore();FS.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+  AU.onAuthStateChanged(u=>{UNSUB.forEach(f=>f());UNSUB=[];
+    if(!u){ROLE='';DB.inv=[];DB.cus={};render();showLogin();return}
+    ROLE=(u.email||'').startsWith('admin@')?'admin':'petugas';hideLogin();
+    UNSUB.push(inv$().onSnapshot(sn=>{DB.inv=sn.docs.map(d=>{const i=d.data();i.pays=i.pays||[];i.term=i.term||0;calc(i);return i});refresh()},e=>say('Sinkronisasi gagal: '+e.message)));
+    UNSUB.push(cus$().onSnapshot(sn=>{const c={};sn.docs.forEach(d=>{const x=d.data();c[x.nm||d.id]=x});DB.cus=c;refresh()},()=>{}));
+    render()})}
+function showLogin(msg,fatal){$('#login').style.display='block';const e=$('#lg_err');e.style.display=msg?'block':'none';e.textContent=msg||'';$('#lg_btn').style.display=fatal?'none':'block';$('#lg_code').style.display=fatal?'none':'block'}
+function hideLogin(){$('#login').style.display='none';$('#lg_code').value=''}
+async function login(){const c=$('#lg_code').value;if(!c)return;$('#lg_btn').disabled=true;$('#lg_btn').textContent='Memeriksa…';
+  const go=e=>AU.signInWithEmailAndPassword(e+'@piutang.app',c);
+  try{await go('admin')}catch(e1){try{await go('petugas')}catch(e2){showLogin(e2.code=='auth/network-request-failed'?'Tidak ada koneksi internet.':e2.code=='auth/too-many-requests'?'Terlalu banyak percobaan. Coba lagi beberapa menit lagi.':'Kode salah.')}}
+  $('#lg_btn').disabled=false;$('#lg_btn').textContent='Masuk'}
+boot();
 </script></body></html>
