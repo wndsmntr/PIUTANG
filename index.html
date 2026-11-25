@@ -277,7 +277,7 @@ function addSheet(){need('ocr').catch(()=>{});$('#dlg').innerHTML=`<h2 style="ma
   <button class="s blk" style="border-color:transparent" onclick="$('#dlg').close()">Batal</button>`;$('#dlg').showModal()}
 function detail(n){const i=DB.inv.find(x=>x.n==n),[l,c]=stat(i);
   $('#dlg').innerHTML=`<h2 style="margin:0">${esc(tc(i.name))}</h2><div class=sb>${esc(nf(i.n))}, ${esc(i.addr||i.area)} · ${dmy(i.date)}</div><span class=pill style="color:${c}">${l}</span>
-  <div class=card style="display:block"><div class=row2><span>Total</span><b class=m>${rp(i.amt)}</b></div><div class=row2><span>Terbayar</span><b class=m style="color:var(--g)">${rp(paidOf(i))}</b></div><div class=row2><span>Sisa</span><b class=m style="color:var(--o)">${rp(sisa(i))}</b></div>${dueLine(i)?`<div class=sb style="margin-top:6px">${dueLine(i)}</div>`:''}</div>
+  <div class=card style="display:block"><div class=row2><span>Total</span><b class=m>${rp(i.amt)}</b></div><div class=row2><span>Terbayar</span><b class=m style="color:var(--g)">${rp(paidOf(i))}</b></div><div class=row2><span>Sisa</span><b class=m style="color:var(--o)">${rp(sisa(i))}</b></div>${dueLine(i)?`<div class=sb style="margin-top:6px">${dueLine(i)}</div>`:''}${ADMIN()&&AD().on&&adDue(i)?`<div class=sb style="margin-top:6px">Dihapus otomatis pada ${dmy(adDue(i))}</div>`:''}</div>
   <button class="p blk" style="height:52px" onclick="payForm('${esc(n)}')">${i.st=='b'&&!paidOf(i)?'Bayar':'Pembayaran / cicilan'}</button>
   ${i.src?`<button class="s blk" onclick="viewSrc('${esc(n)}')">📄 Lihat invoice</button>`:''}
   ${ADMIN()?`<button class="s blk" onclick="edit('${esc(n)}')">Ubah invoice</button>`:''}
@@ -318,8 +318,25 @@ async function saveCus(k){if(!ADMIN())return;const o=K()[k],n=$('#c_n').value.tr
   DB.inv.forEach(i=>{if(i.name==o||i.name==n){const u={};if(i.name!=n)u.name=n;if($('#c_all').checked){if(a)u.addr=a;if(r)u.area=r}if(Object.keys(u).length)b.update(inv$().doc(idOf(i.n)),u)}});
   b.commit().catch(fail);$('#dlg').close()}
 async function delCus(k){if(!ADMIN())return;const n=K()[k];if(await ask(`Hapus pelanggan ${n}? Invoice tidak ikut terhapus.`)){cus$().doc(idOf(n)).delete().catch(fail);$('#dlg').close()}}
+/* ---------- Hapus otomatis invoice lunas (hanya dijalankan oleh admin) ---------- */
+let SWEPT=0;
+const AD=()=>({on:localStorage.adOn!='0',days:+localStorage.adDays||14}),
+  lastPay=i=>i.pays.reduce((m,p)=>p.d>m?p.d:m,''),
+  adDue=i=>i.st=='b'||!i.pays.length?'':addDays(lastPay(i),AD().days);   // tanggal hapus = pembayaran terakhir + N hari
+function sweep(){const a=AD();if(!ADMIN()||!a.on)return;const t=iso(new Date()),old=DB.inv.filter(i=>{const d=adDue(i);return d&&d<=t});if(!old.length)return;
+  const go=()=>{for(let k=0;k<old.length;k+=200){const b=FS.batch();old.slice(k,k+200).forEach(i=>{b.delete(inv$().doc(idOf(i.n)));i.pays.forEach(p=>p.pk&&delProof(p.pk));delProof('src:'+i.n)});b.commit().catch(fail)}
+    say(`${old.length} invoice lunas lebih dari ${a.days} hari dihapus otomatis.`)};
+  if(localStorage.adOK)return go();
+  ask(`Hapus otomatis aktif: ada ${old.length} invoice lunas lebih dari ${a.days} hari sejak pembayaran terakhir. Semuanya akan dihapus permanen beserta berkas invoice dan bukti transfernya. Hapus sekarang?`).then(y=>{
+    if(y){localStorage.adOK=1;go()}else{localStorage.adOn='0';say('Hapus otomatis dimatikan. Aktifkan lagi di tab Pelanggan.')}})}
+function adSheet(){const a=AD();
+  $('#dlg').innerHTML=`<h2 style="margin:0 0 4px">Hapus otomatis invoice lunas</h2><small>Invoice yang sudah lunas dihapus permanen, beserta berkas invoice dan bukti transfernya, setelah lewat sekian hari sejak pembayaran terakhir. Dijalankan saat admin membuka aplikasi. Laporan hanya bisa memuat invoice yang belum terhapus.</small>
+  <label style="display:block;margin-top:12px">Status</label><select id="ad_on" class=in><option value=1 ${a.on?'selected':''}>Aktif</option><option value=0 ${a.on?'':'selected'}>Mati</option></select>
+  <label>Hapus setelah (hari)</label><input id="ad_d" class="in m" inputmode=numeric value="${a.days}">
+  <div class=bar style="position:static"><button class=s onclick="$('#dlg').close()">Batal</button><button class=p onclick="saveAD()">Simpan</button></div>`;$('#dlg').showModal()}
+function saveAD(){localStorage.adOn=$('#ad_on').value;localStorage.adDays=Math.max(1,Math.min(3650,+$('#ad_d').value||14));localStorage.removeItem('adOK');$('#dlg').close();render();sweep()}
 const localHas=()=>{try{return(JSON.parse(localStorage.db||'null')?.inv||[]).length>0}catch(_){return false}};
-const acct=()=>`<div class=card style="display:block;margin-top:18px"><div class=row2><span>Masuk sebagai</span><b>${ADMIN()?'Admin':'Petugas'}</b></div>${ADMIN()&&localHas()?`<button class="s blk" onclick="importLocal()">Unggah data dari perangkat ini ke cloud</button>`:''}<button class="s blk" onclick="AU.signOut()">Keluar</button></div>`;
+const acct=()=>`<div class=card style="display:block;margin-top:18px"><div class=row2><span>Masuk sebagai</span><b>${ADMIN()?'Admin':'Petugas'}</b></div>${ADMIN()&&localHas()?`<button class="s blk" onclick="importLocal()">Unggah data dari perangkat ini ke cloud</button>`:''}${ADMIN()?`<button class="s blk" onclick="adSheet()">Hapus otomatis invoice lunas: ${AD().on?'Aktif · '+AD().days+' hari':'Mati'}</button>`:''}<button class="s blk" onclick="AU.signOut()">Keluar</button></div>`;
 async function importLocal(){const o=JSON.parse(localStorage.db||'null');if(!o)return;
   if(!await ask(`Unggah ${o.inv.length} invoice dan ${Object.keys(o.cus||{}).length} pelanggan dari perangkat ini ke cloud?`))return;wait(1,'Mengunggah data…');
   try{for(const i0 of o.inv){const i={...i0};if(!i.pays)i.pays=i.st&&i.st!='b'?[{d:i.date,m:i.st,a:i.amt,note:i.note||'',pk:i.proof?i.n:''}]:[];
@@ -406,9 +423,9 @@ async function boot(){render();
   try{await need('fb')}catch(e){showLogin('Tidak bisa memuat Firebase. Periksa koneksi internet.',1);return}
   firebase.initializeApp(FB_CONFIG);AU=firebase.auth();FS=firebase.firestore();FS.enablePersistence({synchronizeTabs:true}).catch(()=>{});
   AU.onAuthStateChanged(u=>{UNSUB.forEach(f=>f());UNSUB=[];
-    if(!u){ROLE='';DB.inv=[];DB.cus={};render();showLogin();return}
+    if(!u){ROLE='';SWEPT=0;DB.inv=[];DB.cus={};render();showLogin();return}
     ROLE=(u.email||'').startsWith('admin@')?'admin':'petugas';hideLogin();
-    UNSUB.push(inv$().onSnapshot(sn=>{DB.inv=sn.docs.map(d=>{const i=d.data();i.pays=i.pays||[];i.term=i.term||0;calc(i);return i});refresh()},e=>say('Sinkronisasi gagal: '+e.message)));
+    UNSUB.push(inv$().onSnapshot(sn=>{DB.inv=sn.docs.map(d=>{const i=d.data();i.pays=i.pays||[];i.term=i.term||0;calc(i);return i});refresh();if(!SWEPT&&ADMIN()&&!sn.metadata.fromCache){SWEPT=1;sweep()}},e=>say('Sinkronisasi gagal: '+e.message)));
     UNSUB.push(cus$().onSnapshot(sn=>{const c={};sn.docs.forEach(d=>{const x=d.data();c[x.nm||d.id]=x});DB.cus=c;refresh()},()=>{}));
     render()})}
 function showLogin(msg,fatal){$('#login').style.display='block';const e=$('#lg_err');e.style.display=msg?'block':'none';e.textContent=msg||'';$('#lg_btn').style.display=fatal?'none':'block';$('#lg_code').style.display=fatal?'none':'block'}
