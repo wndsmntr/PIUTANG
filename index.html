@@ -51,7 +51,7 @@ input[type=date].in::-webkit-datetime-edit{padding:0}
 <nav id="tab"><button data-t="inv">Invoice</button><button data-t="lap">Laporan</button><button data-t="cus">Pelanggan</button></nav>
 <dialog id="dlg"></dialog><dialog id="dlg2"></dialog><div id="login"><div style="max-width:420px;margin:8vh auto 0"><div class=hero><small>Laporan Piutang</small><div class=big>Masuk</div><div class=ln><span>Masukkan kode tim Anda</span></div></div>
 <label class=lb for=lg_code>Kode tim</label><input id=lg_code class=in type=password autocomplete=current-password placeholder="Kode admin atau kode petugas" onkeydown="if(event.key=='Enter')login()">
-<div id=lg_err class=w style="display:none"></div><button class=add id=lg_btn onclick="login()">Masuk</button></div></div><div id="toast" popover="manual"></div><input id="cam" type="file" accept="image/*" capture="environment" hidden><input id="pcam" type="file" accept="image/*" capture="environment" hidden><input id="pfil" type="file" accept="image/*,application/pdf,.pdf" hidden><input id="fil" type="file" accept="image/*,application/pdf,text/plain,.pdf,.txt" multiple hidden>
+<div id=lg_err class=w style="display:none"></div><button class=add id=lg_btn onclick="login()">Masuk</button></div></div><div id="toast" popover="manual"></div><input id="cam" type="file" accept="image/*" capture="environment" hidden><input id="rest" type="file" accept=".json,application/json" hidden><input id="pcam" type="file" accept="image/*" capture="environment" hidden><input id="pfil" type="file" accept="image/*,application/pdf,.pdf" hidden><input id="fil" type="file" accept="image/*,application/pdf,text/plain,.pdf,.txt" multiple hidden>
 <script>
 const $=s=>document.querySelector(s),DB={inv:[],cus:{}};
 const rp=n=>'Rp '+String(n).replace(/\B(?=(\d{3})+(?!\d))/g,'.'),sd=d=>{const[y,m,x]=d.split('-');return +x+'/'+ +m},sum=(l,f=i=>i.amt)=>l.reduce((s,i)=>s+f(i),0);
@@ -177,8 +177,9 @@ function openForm(d,edit){PF=d.proofFile||null;SF=d.srcFile||null;
   <label>Tanggal invoice</label><input class=in id="f_d" type=date value="${d.date}" oninput="dueHint()">
   <label>Jatuh tempo (hari setelah tanggal invoice)</label><input class=in id="f_term" inputmode=numeric value="${term}" placeholder="mis. 14 (kosong = tanpa jatuh tempo)" oninput="dueHint()"><small id=duehint></small>
   <label>Nama</label><input class=in id="f_name" list=cl value="${esc(d.name)}" autocapitalize=characters oninput="fillCus(this.value)">
-  <datalist id=cl>${Object.keys(DB.cus).map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+  <datalist id=cl>${K().map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
   <label>Alamat</label><input class=in id="f_addr" value="${esc(d.addr)}">
+  <label>No. HP pelanggan (opsional, untuk pengingat WhatsApp)</label><input class=in id="f_hp" inputmode=tel value="${esc(d.hp||cu.hp||'')}" placeholder="mis. 0812 3456 7890">
   <label>Area / rute</label><input class=in id="f_area" list=al value="${esc(d.area)}"><datalist id=al>${areas.map(a=>`<option value="${esc(a)}">`).join('')}</datalist>
   <label>Jumlah (Rp)</label><input class="in m" id="f_amt" inputmode=decimal value="${d.amt}" placeholder="mis. 300.000" oninput="hint(this)"><small class=hint></small>
   ${old?`<div class=card style="display:block">Terbayar <b>${rp(paidOf(old))}</b> · Sisa <b>${rp(sisa(old))}</b><br><button class=sm onclick="payForm('${esc(d.n)}')">Kelola pembayaran / cicilan</button></div>`
@@ -188,7 +189,7 @@ function openForm(d,edit){PF=d.proofFile||null;SF=d.srcFile||null;
   ${edit?`<button class=sm onclick="delInv('${esc(d.n)}')" style="color:#c0392b">Hapus invoice</button>`:''}`;
   $('#dlg').showModal();dueHint();hint($('#f_amt'))}
 function dueHint(){const t=+$('#f_term').value||0,d=$('#f_d').value;$('#duehint').textContent=t>0&&d?`Jatuh tempo: ${dmy(addDays(d,t))}`:''}
-function fillCus(n){const c=DB.cus[n.trim().toUpperCase()];if(c){if(!$('#f_addr').value)$('#f_addr').value=c.addr;if(c.area)$('#f_area').value=c.area;if(c.term&&!$('#f_term').value){$('#f_term').value=c.term;dueHint()}}}
+function fillCus(n){const c=DB.cus[n.trim().toUpperCase()];if(c){if(!$('#f_addr').value)$('#f_addr').value=c.addr;if(c.area)$('#f_area').value=c.area;if(c.term&&!$('#f_term').value){$('#f_term').value=c.term;dueHint()}if(c.hp&&!$('#f_hp').value)$('#f_hp').value=c.hp;}}
 async function saveInv(edit){
   const v=id=>$('#f_'+id)?.value.trim()||'',i={n:v('n').toUpperCase(),name:v('name').toUpperCase(),addr:v('addr'),area:v('area'),date:v('d'),amt:parseRp(v('amt')),term:Math.max(0,+v('term')||0)},st=v('st'),note=v('note');
   if(!i.n||!i.name||!i.area||!i.amt||!i.date||(!edit&&!st))return say('Lengkapi nomor invoice, nama, area, jumlah, dan status bayar.');
@@ -203,7 +204,7 @@ async function saveInv(edit){
       if(st=='t'){if(PF){p.pk='p:'+i.n+':'+Date.now();await putProof(p.pk,await shrink(PF))}else if(!await ask('Transfer tanpa bukti. Simpan tanpa bukti transfer?'))return}
       pays=[p]}
     inv$().doc(idOf(i.n)).set(old?i:{...i,pays},{merge:true}).catch(fail);      // invoice yang sudah ada: daftar pembayaran tidak ditimpa
-    cus$().doc(idOf(i.name)).set({nm:i.name,addr:i.addr||DB.cus[i.name]?.addr||'',area:i.area,term:i.term},{merge:true}).catch(fail);
+    cus$().doc(idOf(i.name)).set({nm:i.name,addr:i.addr||DB.cus[i.name]?.addr||'',area:i.area,term:i.term,hp:v('hp')||DB.cus[i.name]?.hp||''},{merge:true}).catch(fail);
     area=localStorage.area=i.area;localStorage.term=i.term||'';$('#dlg').close()
   }catch(e){say(e.message)}}
 async function delInv(n){if(!ADMIN())return;if(await ask('Hapus invoice '+n+'?')){const o=DB.inv.find(i=>i.n==n);(o?.pays||[]).forEach(p=>p.pk&&delProof(p.pk));delProof('src:'+n);inv$().doc(idOf(n)).delete().catch(fail);$('#dlg').close()}}
@@ -225,7 +226,7 @@ async function shrink(f){
   if(f.size>600e3)throw new Error('Berkas terlalu besar (maksimal sekitar 600 KB). Gunakan foto atau kecilkan berkasnya.');
   return{name:f.name,type:f.type||'application/pdf',blob:f}}
 function payForm(n,file,pp){const i=DB.inv.find(x=>x.n==n);PF=file||null;SF=null;const s=sisa(i);PA=s;const t=!!file,a=pp?.amt&&pp.amt<=s?pp.amt:s;
-  const hist=i.pays.map((p,k)=>`<div class=it><div>${dmy(p.d)} · ${p.m=='t'?'Transfer':'Cash'}<small>${esc(p.note||'')}</small></div><div class=r><span class=m>${rp(p.a)}</span><br>${p.pk?`<button class=sm onclick="viewFile('${esc(p.pk)}','Bukti ${esc(n)}')">🧾 Bukti</button>`:''}${ADMIN()?`<button class=sm style="color:#c0392b" onclick="delPay('${esc(n)}',${k})">Hapus</button>`:''}</div></div>`).join('');
+  const hist=i.pays.map((p,k)=>`<div class=it><div>${dmy(p.d)} · ${p.m=='t'?'Transfer':'Cash'}<small>${esc(p.note||'')}</small></div><div class=r><span class=m>${rp(p.a)}</span><br><button class=sm onclick="kwitansi('${esc(n)}',${k})">🧾 Kwitansi</button>${p.pk?`<button class=sm onclick="viewFile('${esc(p.pk)}','Bukti ${esc(n)}')">🧾 Bukti</button>`:''}${ADMIN()?`<button class=sm style="color:#c0392b" onclick="delPay('${esc(n)}',${k})">Hapus</button>`:''}</div></div>`).join('');
   $('#dlg').innerHTML=`<h2 style="margin:0 0 4px">Pembayaran ${esc(n)}</h2><small>${esc(i.name)} · Total ${rp(i.amt)}${dueOf(i)?' · Jatuh tempo '+dmy(dueOf(i)):''}</small>
   <div class=card style="display:block">Terbayar <b class="m g" style="display:inline;font-size:15px">${rp(paidOf(i))}</b> · Sisa <b class="m o" style="display:inline;font-size:15px">${rp(s)}</b></div>
   ${hist||'<small>Belum ada pembayaran.</small>'}
@@ -279,6 +280,8 @@ function detail(n){const i=DB.inv.find(x=>x.n==n),[l,c]=stat(i);
   $('#dlg').innerHTML=`<h2 style="margin:0">${esc(tc(i.name))}</h2><div class=sb>${esc(nf(i.n))}, ${esc(i.addr||i.area)} · ${dmy(i.date)}</div><span class=pill style="color:${c}">${l}</span>
   <div class=card style="display:block"><div class=row2><span>Total</span><b class=m>${rp(i.amt)}</b></div><div class=row2><span>Terbayar</span><b class=m style="color:var(--g)">${rp(paidOf(i))}</b></div><div class=row2><span>Sisa</span><b class=m style="color:var(--o)">${rp(sisa(i))}</b></div>${dueLine(i)?`<div class=sb style="margin-top:6px">${dueLine(i)}</div>`:''}${ADMIN()&&AD().on&&adDue(i)?`<div class=sb style="margin-top:6px">Dihapus otomatis pada ${dmy(adDue(i))}</div>`:''}</div>
   <button class="p blk" style="height:52px" onclick="payForm('${esc(n)}')">${i.st=='b'&&!paidOf(i)?'Bayar':'Pembayaran / cicilan'}</button>
+  ${i.st=='b'?`<button class="s blk" onclick="remind('${esc(n)}')">💬 Ingatkan via WhatsApp</button>`:''}
+  <button class="s blk" onclick="shareSheet(buildKartu(DB.inv.find(x=>x.n=='${esc(n)}').name))">📋 Kartu piutang pelanggan (PDF)</button>
   ${i.src?`<button class="s blk" onclick="viewSrc('${esc(n)}')">📄 Lihat invoice</button>`:''}
   ${ADMIN()?`<button class="s blk" onclick="edit('${esc(n)}')">Ubah invoice</button>`:''}
   ${ADMIN()?`<button class="s blk" style="color:#c0392b;border-color:#c0392b" onclick="delInv('${esc(n)}')">Hapus invoice</button>`:''}
@@ -288,36 +291,163 @@ function build(a,f,t){const x=DB.inv.filter(i=>i.area.toLowerCase()==a.toLowerCa
   u=x.filter(i=>i.st=='b'&&i.date>=f&&i.date<=t).sort(ds),ok=x.filter(i=>i.st!='b'&&i.date>=f&&i.date<=t),g=k=>ok.filter(i=>i.st==k).sort(d),tr=g('t'),ca=g('c'),mx=g('m');
   return{a,u,p:[...tr,...ca,...mx],tr,ca,mx}}
 const summary=r=>`Ringkasan (${r.u.length+r.p.length} invoice, total ${rp(sum(r.u,sisa)+sum(r.p))}): Belum bayar ${r.u.length} invoice ${rp(sum(r.u,sisa))} | Lunas ${r.p.length} invoice ${rp(sum(r.p))} (Transfer ${r.tr.length} invoice ${rp(sum(r.tr))}, Cash ${r.ca.length} invoice ${rp(sum(r.ca))}${r.mx.length?`, Campuran ${r.mx.length} invoice ${rp(sum(r.mx))}`:''}).`;
+let RT='piutang';
 function vLap(){const areas=[...new Set(DB.inv.map(i=>i.area))].sort();if(!areas.includes(area))area=areas[0]||'';
   if(!areas.length)return '<div class=hero><small>Laporan piutang</small><div class="big m">Rp 0</div><div class=ln><span>Belum ada invoice</span></div></div><small>Tambahkan invoice dulu di tab Invoice.</small>';
-  const r=build(area,D0,D1);
-  return `<div class=hero><small>Laporan piutang · ${esc(area)}</small><div class="big m">${rp(sum(r.u,sisa)+sum(r.p))}</div><div class=ln><span>Belum bayar ${r.u.length} · ${rp(sum(r.u,sisa))}</span><span>Lunas ${r.p.length} · ${rp(sum(r.p))}</span></div></div>
-  <label class=lb>Area</label><select onchange="area=this.value;render()">${areas.map(a=>`<option ${a==area?'selected':''}>${esc(a)}</option>`).join('')}</select>
-  <label class=lb style="margin-top:6px">Dari</label><input class=in type=date value="${D0}" onchange="D0=this.value;render()">
-  <label class=lb style="margin-top:6px">Sampai</label><input class=in type=date value="${D1}" onchange="D1=this.value;render()">
-  <small>Hanya invoice dengan tanggal dalam rentang ini yang masuk laporan, baik lunas maupun belum lunas. Untuk yang belum lunas, jumlahnya adalah sisa yang belum dibayar.</small>
-  <div class=bar><button class=add style="margin:0" onclick="shareSheet()">Bagikan</button></div>`}
-const K=()=>Object.keys(DB.cus).sort();
+  const R=curReport(),chips=[['piutang','Piutang'],['aging','Umur piutang'],['cash','Penerimaan']].map(([k,t])=>`<button class="chip ${RT==k?'on':''}" onclick="RT='${k}';render()">${t}</button>`).join('');
+  let hero,help;
+  if(RT=='piutang'){hero=`<div class=hero><small>Laporan piutang · ${esc(area)}</small><div class="big m">${rp(sum(R.u,sisa)+sum(R.p))}</div><div class=ln><span>Belum bayar ${R.u.length} · ${rp(sum(R.u,sisa))}</span><span>Lunas ${R.p.length} · ${rp(sum(R.p))}</span></div></div>`;
+    help='Hanya invoice yang tanggalnya dalam rentang ini yang masuk laporan, baik lunas maupun belum lunas. Untuk invoice yang dicicil, jumlahnya adalah sisa yang belum dibayar.'}
+  else if(RT=='aging'){const t=R.tables[0].foot;hero=`<div class=hero><small>Umur piutang · ${esc(area)}</small><div class="big m">${rp(R.total)}</div><div class=ln><span>0-30 hari ${rp(t[1])}</span><span>31-60 hari ${rp(t[2])}</span><span>&gt;60 hari ${rp(t[3])}</span></div></div>`;
+    help='Semua invoice yang belum lunas di area ini, dikelompokkan menurut umur sejak tanggal invoice sampai hari ini.'}
+  else{hero=`<div class=hero><small>Penerimaan · ${esc(area)}</small><div class="big m">${rp(R.total)}</div><div class=ln><span>${R.tables[0].rows.length} pembayaran</span></div></div>`;
+    help='Pembayaran (cash dan transfer, termasuk cicilan) yang tanggal bayarnya dalam rentang ini.'}
+  return `${hero}<div class=chips>${chips}</div><label class=lb>Area</label><select onchange="area=this.value;render()">${areas.map(a=>`<option ${a==area?'selected':''}>${esc(a)}</option>`).join('')}</select>
+  ${RT=='aging'?'':`<label class=lb style="margin-top:6px">Dari</label><input class=in type=date value="${D0}" onchange="D0=this.value;render()"><label class=lb style="margin-top:6px">Sampai</label><input class=in type=date value="${D1}" onchange="D1=this.value;render()">`}
+  <small>${help}</small>
+  <div class=bar><button class=add style="margin:0" onclick="shareSheet(curReport())">Bagikan</button></div>`}
+const K=()=>Object.keys(DB.cus).filter(k=>k[0]!='~').sort();
 function vCus(){const ks=K(),hot=ks.filter(n=>sum(DB.inv.filter(i=>i.name==n&&i.st=='b'),sisa)>0).length;
   return `<div class=hero><small>Total pelanggan</small><div class="big m">${ks.length}</div><div class=ln><span>${hot} masih punya tagihan</span></div></div>
   <label class=lb for=qc>Cari pelanggan</label><input id=qc class="in sr" placeholder="Nama atau alamat" value="${esc(QC)}" oninput="QC=this.value;$('#clist').innerHTML=clist()"><div id=clist>${clist()}</div>${acct()}`}
 const clist=()=>{const l=K().map((n,k)=>[n,k]).filter(([n])=>!QC||(n+' '+(DB.cus[n].addr||'')).toLowerCase().includes(QC.toLowerCase()));
   return l.map(([n,k])=>{const c=DB.cus[n],t=sum(DB.inv.filter(i=>i.name==n&&i.st=='b'),sisa),cn=DB.inv.filter(i=>i.name==n).length;
-    return `<div class=inv style="--ac:${t?'#a06a21':'#2c4e78'}" onclick="custMenu(${k})"><div class=row2><b class=nm>${esc(tc(n))}</b><b class=am>${t?rp(t):''}</b></div><div class=sb>${esc([c.addr,c.area].filter(Boolean).join(', '))||'-'}</div><div class=sb>${cn} invoice${c.term?' · tempo '+c.term+' hari':''}</div></div>`}).join('')||'<small>Pelanggan dibuat otomatis saat invoice disimpan.</small>'};
+    return `<div class=inv style="--ac:${t?'#a06a21':'#2c4e78'}" onclick="custMenu(${k})"><div class=row2><b class=nm>${esc(tc(n))}</b><b class=am>${t?rp(t):''}</b></div><div class=sb>${esc([c.addr,c.area].filter(Boolean).join(', '))||'-'}</div><div class=sb>${cn} invoice${c.term?' · tempo '+c.term+' hari':''}${c.hp?' · '+esc(c.hp):''}</div></div>`}).join('')||'<small>Pelanggan dibuat otomatis saat invoice disimpan.</small>'};
 function custMenu(k){if(!ADMIN())return;const n=K()[k],c=DB.cus[n];
   $('#dlg').innerHTML=`<h2 style="margin:0">${esc(tc(n))}</h2><div class=sb>${esc([c.addr,c.area].filter(Boolean).join(', '))}</div>
   <button class="p blk" style="height:52px" onclick="custForm(${k})">Ubah pelanggan</button>
+  <button class="s blk" onclick="remindAll(${k})">💬 Ingatkan semua tagihan via WhatsApp</button>
+  <button class="s blk" onclick="shareSheet(buildKartu(K()[${k}]))">📋 Kartu piutang (PDF)</button>
   <button class="s blk" style="color:#c0392b;border-color:#c0392b" onclick="delCus(${k})">Hapus pelanggan</button>
   <button class="s blk" style="border-color:transparent" onclick="$('#dlg').close()">Tutup</button>`;$('#dlg').showModal()}
-function custForm(k){const n=K()[k],c=DB.cus[n];$('#dlg').innerHTML=`<h2 style="margin:0 0 8px">Ubah Pelanggan</h2><label>Nama</label><input class=in id="c_n" value="${esc(n)}" autocapitalize=characters><label>Alamat</label><input class=in id="c_a" value="${esc(c.addr)}"><label>Area / rute</label><input class=in id="c_r" value="${esc(c.area)}"><label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type=checkbox id="c_all" checked>Terapkan alamat dan area ke semua invoice pelanggan ini</label><div class=bar style="position:static"><button class=s onclick="$('#dlg').close()">Batal</button><button class=p onclick="saveCus(${k})">Simpan</button></div>`;$('#dlg').showModal()}
+function custForm(k){const n=K()[k],c=DB.cus[n];$('#dlg').innerHTML=`<h2 style="margin:0 0 8px">Ubah Pelanggan</h2><label>Nama</label><input class=in id="c_n" value="${esc(n)}" autocapitalize=characters><label>Alamat</label><input class=in id="c_a" value="${esc(c.addr)}"><label>Area / rute</label><input class=in id="c_r" value="${esc(c.area)}"><label>No. HP (WhatsApp)</label><input class=in id="c_hp" inputmode=tel value="${esc(c.hp||'')}"><label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type=checkbox id="c_all" checked>Terapkan alamat dan area ke semua invoice pelanggan ini</label><div class=bar style="position:static"><button class=s onclick="$('#dlg').close()">Batal</button><button class=p onclick="saveCus(${k})">Simpan</button></div>`;$('#dlg').showModal()}
 async function saveCus(k){if(!ADMIN())return;const o=K()[k],n=$('#c_n').value.trim().toUpperCase(),a=$('#c_a').value.trim(),r=$('#c_r').value.trim();
   if(!n)return say('Nama tidak boleh kosong.');if(n!=o&&DB.cus[n]&&!await ask(`Pelanggan ${n} sudah ada. Gabungkan?`))return;
   const b=FS.batch(),t=DB.cus[n]?.term??DB.cus[o]?.term??0;
   if(n!=o)b.delete(cus$().doc(idOf(o)));
-  b.set(cus$().doc(idOf(n)),{nm:n,addr:a,area:r,term:t});
+  b.set(cus$().doc(idOf(n)),{nm:n,addr:a,area:r,term:t,hp:$('#c_hp').value.trim()});
   DB.inv.forEach(i=>{if(i.name==o||i.name==n){const u={};if(i.name!=n)u.name=n;if($('#c_all').checked){if(a)u.addr=a;if(r)u.area=r}if(Object.keys(u).length)b.update(inv$().doc(idOf(i.n)),u)}});
   b.commit().catch(fail);$('#dlg').close()}
 async function delCus(k){if(!ADMIN())return;const n=K()[k];if(await ask(`Hapus pelanggan ${n}? Invoice tidak ikut terhapus.`)){cus$().doc(idOf(n)).delete().catch(fail);$('#dlg').close()}}
+/* ---------- Laporan lain: umur piutang, penerimaan, kartu piutang, kwitansi, kop ---------- */
+const kop=()=>{const x=DB.cus['~USAHA']||{};return{nama:x.usaha||'',alamat:x.alamat||'',ttd:x.ttd||''}};
+function kopSheet(){const k=kop();$('#dlg').innerHTML=`<h2 style="margin:0 0 4px">Kop laporan</h2><small>Tampil di bagian atas PDF dan Excel, kartu piutang, dan kwitansi. Tersimpan di database bersama.</small>
+  <label style="display:block;margin-top:10px">Nama usaha</label><input class=in id="k_n" value="${esc(k.nama)}" placeholder="mis. Toko Utama Plastik">
+  <label>Alamat / telepon (satu baris)</label><input class=in id="k_a" value="${esc(k.alamat)}" placeholder="mis. Jl. Sunan Kalijaga No.129 · 0813 1899 8759">
+  <label>Nama penanda tangan (opsional)</label><input class=in id="k_t" value="${esc(k.ttd)}" placeholder="mis. Hana">
+  <div class=bar style="position:static"><button class=s onclick="$('#dlg').close()">Batal</button><button class=p onclick="saveKop()">Simpan</button></div>`;$('#dlg').showModal()}
+function saveKop(){setCus('~USAHA',{nm:'~USAHA',usaha:$('#k_n').value.trim(),alamat:$('#k_a').value.trim(),ttd:$('#k_t').value.trim()}).catch(fail);$('#dlg').close()}
+function kopDraw(doc,K){let y=26;if(K.nama){doc.setFont('helvetica','bold').setFontSize(13).text(K.nama,doc.internal.pageSize.getWidth()/2,y,{align:'center'});y+=13}
+  if(K.alamat){doc.setFont('helvetica','normal').setFontSize(9).text(K.alamat,doc.internal.pageSize.getWidth()/2,y,{align:'center'});y+=11}
+  if(K.nama||K.alamat){doc.setDrawColor(120).setLineWidth(.5).line(36,y-3,doc.internal.pageSize.getWidth()-36,y-3);y+=6}return y-26}
+function ttd(doc,y,K){if(!K.ttd)return y;const W=842;if(y+80>555){doc.addPage();y=50}
+  doc.setFont('helvetica','normal').setFontSize(10).text('Hormat kami,',W-36,y,{align:'right'});doc.text(K.ttd,W-36,y+56,{align:'right'});
+  doc.setDrawColor(60).line(W-36-Math.max(100,doc.getTextWidth(K.ttd)),y+60,W-36,y+60);return y+70}
+function xhead(ws,title,sub,nc){const K=kop(),L=String.fromCharCode(64+nc),h=(t,sz,b)=>{const row=ws.addRow([t]);ws.mergeCells(`A${row.number}:${L}${row.number}`);row.font={bold:b,size:sz};row.alignment={horizontal:'center'}};
+  if(K.nama)h(K.nama,13,true);if(K.alamat)h(K.alamat,9,false);h(title,14,true);h(sub,10,false);ws.addRow([])}
+function xttd(ws,nc){const K=kop();if(!K.ttd)return;const L=String.fromCharCode(64+nc),m=t=>{const r=ws.addRow([t]);ws.mergeCells(`A${r.number}:${L}${r.number}`);r.alignment={horizontal:'right'};return r};
+  ws.addRow([]);m('Hormat kami,');ws.addRow([]);ws.addRow([]);m(K.ttd).font={bold:true}}
+
+const today=()=>iso(new Date()),ageOf=i=>Math.round((Date.parse(today()+'T00:00:00Z')-Date.parse(i.date+'T00:00:00Z'))/864e5);
+function buildAging(a){const l=DB.inv.filter(i=>i.area.toLowerCase()==a.toLowerCase()&&i.st=='b'),m={};
+  l.forEach(i=>{const x=m[i.name]=m[i.name]||[0,0,0],g=ageOf(i);x[g<=30?0:g<=60?1:2]+=sisa(i)});
+  const rows=Object.entries(m).map(([n,x])=>[tc(n),...x,x[0]+x[1]+x[2]]).sort((p,q)=>q[4]-p[4]).map((r,k)=>[k+1,...r]),t=[2,3,4,5].map(c=>rows.reduce((s,r)=>s+r[c],0));
+  return{gen:1,a,fn:'Umur-Piutang',title:'UMUR PIUTANG - '+a.toUpperCase(),sub:longDate()+' · dihitung dari tanggal invoice',total:t[3],
+    note:`Total piutang ${rp(t[3])}: 0-30 hari ${rp(t[0])}, 31-60 hari ${rp(t[1])}, lebih dari 60 hari ${rp(t[2])}.`,
+    tables:[{head:['NO','PELANGGAN','0-30 HARI','31-60 HARI','> 60 HARI','TOTAL'],rows,foot:[`TOTAL (${l.length} invoice)`,...t],span:2,money:[2,3,4,5],w:[6,34,18,18,18,18]}]}}
+function buildCash(a,f,t){const x=[];DB.inv.filter(i=>i.area.toLowerCase()==a.toLowerCase()).forEach(i=>i.pays.forEach(p=>{if(p.d>=f&&p.d<=t)x.push([p.d,sd(p.d),nf(i.n),tc(i.name),p.m=='t'?'Transfer':'Cash',p.note||'',p.a])}));
+  x.sort((p,q)=>p[0]<q[0]?-1:p[0]>q[0]?1:0);const rows=x.map((r,k)=>[k+1,...r.slice(1)]),cashT=x.filter(r=>r[4]=='Cash').reduce((s,r)=>s+r[6],0),trfT=x.filter(r=>r[4]=='Transfer').reduce((s,r)=>s+r[6],0);
+  return{gen:1,a,fn:'Penerimaan',title:'LAPORAN PENERIMAAN - '+a.toUpperCase(),sub:`Tanggal bayar ${dmy(f)} s/d ${dmy(t)}`,total:cashT+trfT,
+    note:`Total penerimaan ${rp(cashT+trfT)}: Cash ${rp(cashT)}, Transfer ${rp(trfT)}.`,
+    tables:[{head:['NO','TGL','INVOICE','PELANGGAN','METODE','KETERANGAN','JUMLAH'],rows,foot:[`TOTAL (${rows.length} pembayaran)`,cashT+trfT],span:6,money:[6],w:[6,8,14,30,12,30,18]}]}}
+function buildKartu(n){const c=DB.cus[n]||{},l=DB.inv.filter(i=>i.name==n).sort((a,b)=>a.date<b.date?-1:1),py=[];
+  l.forEach(i=>i.pays.forEach(p=>py.push([p.d,nf(i.n),p.m=='t'?'Transfer':'Cash',p.note||'',p.a])));py.sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+  const tot=sum(l),paid=l.reduce((s,i)=>s+paidOf(i),0),sis=sum(l,sisa);
+  return{gen:1,a:tc(n),fn:'Kartu-Piutang',title:'KARTU PIUTANG',sub:`${tc(n)}${c.addr?' · '+c.addr:''}${c.hp?' · '+c.hp:''} · per ${longDate()}`,total:sis,
+    note:`Sisa piutang ${rp(sis)} dari total tagihan ${rp(tot)}.`,
+    tables:[{head:['NO','INVOICE','TGL','JT','TOTAL','TERBAYAR','SISA','STATUS'],rows:l.map((i,k)=>[k+1,nf(i.n),sd(i.date),dueOf(i)?sd(dueOf(i)):'-',i.amt,paidOf(i),sisa(i),i.st=='b'?(paidOf(i)?'Cicil':'Belum bayar'):'Lunas']),foot:[`TOTAL (${l.length} invoice)`,tot,paid,sis,''],span:4,money:[4,5,6],w:[6,14,8,8,18,18,18,14]},
+      {title:'Riwayat pembayaran',head:['NO','TGL BAYAR','INVOICE','METODE','KETERANGAN','JUMLAH'],rows:py.map((r,k)=>[k+1,dmy(r[0]),r[1],r[2],r[3],r[4]]),foot:['TOTAL DIBAYAR',paid],span:5,money:[5],w:[6,14,14,12,40,18]}]}}
+const curReport=()=>RT=='aging'?buildAging(area):RT=='cash'?buildCash(area,D0,D1):build(area,D0,D1);
+function terbilang(n){const s=['','satu','dua','tiga','empat','lima','enam','tujuh','delapan','sembilan','sepuluh','sebelas'];
+  const f=x=>{x=Math.floor(x);if(x<12)return s[x];if(x<20)return f(x-10)+' belas';if(x<100)return f(x/10)+' puluh'+(x%10?' '+f(x%10):'');if(x<200)return 'seratus'+(x%100?' '+f(x%100):'');if(x<1000)return f(x/100)+' ratus'+(x%100?' '+f(x%100):'');if(x<2000)return 'seribu'+(x%1000?' '+f(x%1000):'');if(x<1e6)return f(x/1000)+' ribu'+(x%1000?' '+f(x%1000):'');if(x<1e9)return f(x/1e6)+' juta'+(x%1e6?' '+f(x%1e6):'');if(x<1e12)return f(x/1e9)+' miliar'+(x%1e9?' '+f(x%1e9):'');return f(x/1e12)+' triliun'+(x%1e12?' '+f(x%1e12):'')};
+  return n?f(n)+' rupiah':'nol rupiah'}
+function kwitansi(n,k){const i=DB.inv.find(x=>x.n==n),p=i.pays[k],after=Math.max(0,i.amt-i.pays.slice(0,k+1).reduce((s,x)=>s+x.a,0)),tb=terbilang(p.a);
+  shareSheet({gen:2,kind:'kwitansi',only:'pdf',a:tc(i.name),fn:'Kwitansi-'+i.n,no:`${nf(i.n)}/${k+1}`,name:tc(i.name),amt:rp(p.a),terb:tb[0].toUpperCase()+tb.slice(1),
+    for:`Pembayaran invoice ${nf(i.n)} tanggal ${dmy(i.date)}${i.pays.length>1||after>0?` (pembayaran ke-${k+1})`:''}`,met:(p.m=='t'?'Transfer':'Cash')+(p.note?' · '+p.note:''),sisa:rp(after),tgl:`${dmy(p.d)}`,
+    note:`Kwitansi ${nf(i.n)}/${k+1}: ${rp(p.a)} dari ${tc(i.name)} untuk invoice ${nf(i.n)}. Sisa tagihan ${rp(after)}.`})}
+async function pdfRcpt(R){await need('pdf');const{jsPDF}=window.jspdf,doc=new jsPDF({orientation:'landscape',unit:'pt',format:'a5'}),W=595,H=420,K=kop();let y=50;
+  doc.setDrawColor(150).setLineWidth(.8).rect(22,22,W-44,H-44);
+  if(K.nama){doc.setFont('helvetica','bold').setFontSize(14).text(K.nama,W/2,y,{align:'center'});y+=15}
+  if(K.alamat){doc.setFont('helvetica','normal').setFontSize(9).text(K.alamat,W/2,y,{align:'center'});y+=12}
+  y+=16;doc.setFont('helvetica','bold').setFontSize(20).text('KWITANSI',W/2,y,{align:'center'});y+=15;doc.setFont('helvetica','normal').setFontSize(9).text('No. '+R.no,W/2,y,{align:'center'});y+=26;
+  const row=(l,v,b)=>{doc.setFont('helvetica','normal').setFontSize(11).text(l,46,y);doc.setFont('helvetica',b?'bold':'normal');const t=doc.splitTextToSize(': '+v,W-200-46);doc.text(t,170,y);y+=t.length*14+6};
+  row('Sudah terima dari',R.name,1);row('Uang sejumlah',R.amt,1);row('Terbilang',R.terb);row('Untuk pembayaran',R.for);row('Metode',R.met);row('Sisa tagihan',R.sisa);
+  doc.setFont('helvetica','bold').setFontSize(15).text(R.amt,46,H-52);
+  doc.setFont('helvetica','normal').setFontSize(10).text(R.tgl,W-46,H-100,{align:'right'});
+  if(K.ttd){doc.text(K.ttd,W-46,H-52,{align:'right'});doc.setDrawColor(60).line(W-46-Math.max(90,doc.getTextWidth(K.ttd)),H-48,W-46,H-48)}
+  return doc.output('blob')}
+async function pdfGen(R){await need('pdf');const{jsPDF}=window.jspdf,doc=new jsPDF({orientation:'landscape',unit:'pt',format:'a4'}),W=842,K=kop(),off=kopDraw(doc,K);
+  doc.setFont('helvetica','bold').setFontSize(18).text(R.title,W/2,48+off,{align:'center'});doc.setFont('helvetica','normal').setFontSize(10).text(R.sub,W/2,64+off,{align:'center'});let y=88+off;
+  for(const T of R.tables){if(T.title){if(y+60>555){doc.addPage();y=40}doc.setFont('helvetica','bold').setFontSize(11).text(T.title,36,y+8);y+=14}
+    const cs={0:{halign:'center',cellWidth:30}};T.money.forEach(k=>cs[k]={halign:'right'});
+    doc.autoTable({startY:y,margin:{left:36,right:36,bottom:40},theme:'grid',showFoot:'lastPage',head:[T.head],body:T.rows.map(r=>r.map((c,k)=>T.money.includes(k)?rp(c):c)),
+      foot:[[{content:T.foot[0],colSpan:T.span,styles:{halign:'left'}},...T.foot.slice(1).map(c=>typeof c=='number'?rp(c):c)]],
+      styles:{fontSize:8,cellPadding:2.5,lineColor:60,lineWidth:.4,textColor:0},headStyles:{fillColor:[230,230,245],textColor:0,halign:'center'},footStyles:{fillColor:[240,240,240],textColor:0},columnStyles:cs});
+    y=doc.lastAutoTable.finalY+18}
+  if(R.note){if(y+30>555){doc.addPage();y=40}doc.setFont('helvetica','normal').setFontSize(9).text(doc.splitTextToSize(R.note,770),36,y);y+=24}
+  y=ttd(doc,y+10,K);const n=doc.getNumberOfPages();for(let i=1;i<=n;i++){doc.setPage(i);doc.setFontSize(8).setTextColor(90).text(R.title,36,576);doc.text(`Halaman ${i} dari ${n}`,W-36,576,{align:'right'})}
+  return doc.output('blob')}
+async function xlsxGen(R){await need('xls');const nc=Math.max(...R.tables.map(T=>T.head.length)),L=String.fromCharCode(64+nc),wb=new ExcelJS.Workbook(),
+  ws=wb.addWorksheet('Laporan',{pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0},views:[{showGridLines:false}]});
+  ws.columns=(R.tables[0].w||[]).concat(Array(nc).fill(16)).slice(0,nc).map(width=>({width}));xhead(ws,R.title,R.sub,nc);
+  const bd={style:'thin',color:{argb:'FF444444'}},B={top:bd,left:bd,bottom:bd,right:bd},fill=c=>({type:'pattern',pattern:'solid',fgColor:{argb:c}}),RP='"Rp "#,##0';
+  R.tables.forEach(T=>{if(T.title)ws.addRow([T.title]).font={bold:true};
+    ws.addRow(T.head).eachCell(c=>{c.font={bold:true};c.fill=fill('FFE6E6F5');c.border=B;c.alignment={horizontal:'center'}});
+    T.rows.forEach(r=>{const w=ws.addRow(r);w.eachCell(c=>c.border=B);T.money.forEach(k=>w.getCell(k+1).numFmt=RP)});
+    const t=ws.addRow([T.foot[0],...Array(T.span-1).fill(''),...T.foot.slice(1)]);ws.mergeCells(`A${t.number}:${String.fromCharCode(64+T.span)}${t.number}`);
+    t.eachCell(c=>{c.font={bold:true};c.fill=fill('FFF0F0F0');c.border=B});T.money.forEach(k=>t.getCell(k+1).numFmt=RP);ws.addRow([])});
+  if(R.note){const s=ws.addRow([R.note]);ws.mergeCells(`A${s.number}:${L}${s.number}`);s.height=30;s.alignment={wrapText:true,vertical:'top'}}
+  xttd(ws,nc);return new Blob([await wb.xlsx.writeBuffer()],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})}
+const mkFile=(R,k)=>R.kind=='kwitansi'?pdfRcpt(R):R.gen?(k=='pdf'?pdfGen(R):xlsxGen(R)):(k=='pdf'?pdf(R):xlsx(R));
+
+/* ---------- Cadangan, pemulihan, pengingat WhatsApp ---------- */
+const W=p=>Promise.race([p,new Promise((_,r)=>setTimeout(()=>r(new Error('Waktu habis. Periksa koneksi internet.')),20000))]);
+const writeInvoice=i=>inv$().doc(idOf(i.n)).set(i);
+const setCus=(n,x)=>cus$().doc(idOf(n)).set(x);
+function backupSheet(){$('#dlg').innerHTML=`<h2 style="margin:0 0 4px">Cadangkan data</h2><small>Hasilnya satu file .json berisi semua invoice, pembayaran, dan pelanggan. Simpan di tempat aman (iCloud Drive, Files, atau kirim ke diri sendiri).</small>
+  <button class="p blk" style="height:54px" onclick="$('#dlg').close();exportBackup(0)">Data saja (kecil)</button>
+  <button class="s blk" style="height:54px" onclick="$('#dlg').close();exportBackup(1)">Data + berkas invoice dan bukti transfer (besar)</button>
+  <button class="s blk" style="border-color:transparent" onclick="$('#dlg').close()">Batal</button>`;$('#dlg').showModal()}
+async function exportBackup(withFiles){wait(1,'Menyiapkan cadangan…');
+  try{const out={v:1,at:new Date().toISOString(),inv:DB.inv.map(i=>{const{st,...r}=i;return r}),cus:DB.cus,files:[]};
+    if(withFiles){const keys=[];DB.inv.forEach(i=>{if(i.src)keys.push('src:'+i.n);i.pays.forEach(p=>p.pk&&keys.push(p.pk))});
+      for(let k=0;k<keys.length;k++){wait(1,`Mengambil berkas ${k+1} dari ${keys.length}…`);try{const f=await getProof(keys[k]);if(f)out.files.push({key:keys[k],name:f.name,type:f.type,data:await b64(f.blob)})}catch(_){}}}
+    const blob=new Blob([JSON.stringify(out)],{type:'application/json'});wait(0);localStorage.lastBackup=iso(new Date());
+    await saveOut(blob,`cadangan-piutang-${iso(new Date())}.json`);render()
+  }catch(e){wait(0);say('Gagal membuat cadangan: '+e.message)}}
+async function restoreBackup(f){if(!ADMIN())return;let o;
+  try{o=JSON.parse(await f.text());if(!o||!Array.isArray(o.inv))throw 0}catch(_){return say('Berkas cadangan tidak valid.')}
+  if(!await ask(`Pulihkan ${o.inv.length} invoice, ${Object.keys(o.cus||{}).length} pelanggan, dan ${(o.files||[]).length} berkas dari cadangan tanggal ${(o.at||'').slice(0,10)}? Invoice dengan nomor yang sama akan ditimpa.${AD().on?' Perhatian: hapus otomatis sedang aktif, jadi invoice lunas yang sudah melewati batas hari akan terhapus lagi. Matikan dulu jika tidak diinginkan.':''}`))return;
+  wait(1,'Memulihkan data…');
+  try{let n=0;for(const i0 of o.inv){const i={...i0};delete i.st;i.pays=(i.pays||[]).map(p=>({...p,id:p.id||uid()}));await W(writeInvoice(i));wait(1,`Memulihkan invoice ${++n} dari ${o.inv.length}…`)}
+    for(const[nm,c]of Object.entries(o.cus||{}))await W(setCus(nm,{...c,nm}));
+    const fs=o.files||[];for(let k=0;k<fs.length;k++){wait(1,`Memulihkan berkas ${k+1} dari ${fs.length}…`);const x=fs[k];await W(putProof(x.key,{name:x.name,type:x.type,blob:await(await fetch(x.data)).blob()}))}
+    SWEPT=1;wait(0);say('Data berhasil dipulihkan.')
+  }catch(e){wait(0);say('Pemulihan berhenti: '+e.message)}}
+$('#rest').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)restoreBackup(f)};
+
+const waNum=h=>{let d=String(h||'').replace(/\D/g,'');if(!d)return'';if(d.startsWith('0'))d='62'+d.slice(1);else if(d.startsWith('8'))d='62'+d;return d};
+const sapa=()=>{const h=(+new Date().toLocaleString('en-GB',{hour:'numeric',hour12:false,timeZone:'Asia/Jakarta'}))%24;return h<11?'pagi':h<15?'siang':h<18?'sore':'malam'};
+function openWA(num,t){const w=window.open(`https://wa.me/${num}?text=${encodeURIComponent(t)}`,'_blank');
+  if(!w){try{navigator.clipboard.writeText(t)}catch(_){}say('WhatsApp tidak bisa dibuka dari sini. Teks pengingat sudah disalin, tempel di WhatsApp.')}}
+function remind(n){const i=DB.inv.find(x=>x.n==n),c=DB.cus[i.name]||{},num=waNum(c.hp);
+  if(!num)return say('Nomor HP pelanggan belum diisi. Isi di formulir invoice atau di tab Pelanggan (admin).');
+  const dl=daysLeft(i),due=dueOf(i);
+  openWA(num,`Selamat ${sapa()}, ${tc(i.name)}. Kami mengingatkan tagihan invoice ${nf(i.n)} tanggal ${dmy(i.date)} sebesar ${rp(sisa(i))}${paidOf(i)?' (sisa setelah cicilan)':''}${due?`, jatuh tempo ${dmy(due)}${dl<0?` (telat ${-dl} hari)`:''}`:''}. Mohon konfirmasi pembayarannya. Terima kasih.`)}
+function remindAll(k){const n=K()[k],c=DB.cus[n]||{},l=DB.inv.filter(i=>i.name==n&&i.st=='b').sort((a,b)=>a.date<b.date?-1:1);
+  if(!l.length)return say('Pelanggan ini tidak punya tagihan.');const num=waNum(c.hp);if(!num)return say('Nomor HP belum diisi. Ketuk Ubah pelanggan untuk menambahkannya.');
+  openWA(num,`Selamat ${sapa()}, ${tc(n)}. Kami mengingatkan tagihan berikut:\n`+l.slice(0,8).map(i=>`• ${nf(i.n)} (${dmy(i.date)}) ${rp(sisa(i))}${dueOf(i)?' JT '+dmy(dueOf(i)):''}`).join('\n')+(l.length>8?`\n…dan ${l.length-8} invoice lain`:'')+`\nTotal: ${rp(sum(l,sisa))}\nMohon konfirmasi pembayarannya. Terima kasih.`)}
+
 /* ---------- Hapus otomatis invoice lunas (hanya dijalankan oleh admin) ---------- */
 let SWEPT=0;
 const AD=()=>({on:localStorage.adOn!='0',days:+localStorage.adDays||14}),
@@ -336,7 +466,7 @@ function adSheet(){const a=AD();
   <div class=bar style="position:static"><button class=s onclick="$('#dlg').close()">Batal</button><button class=p onclick="saveAD()">Simpan</button></div>`;$('#dlg').showModal()}
 function saveAD(){localStorage.adOn=$('#ad_on').value;localStorage.adDays=Math.max(1,Math.min(3650,+$('#ad_d').value||14));localStorage.removeItem('adOK');$('#dlg').close();render();sweep()}
 const localHas=()=>{try{return(JSON.parse(localStorage.db||'null')?.inv||[]).length>0}catch(_){return false}};
-const acct=()=>`<div class=card style="display:block;margin-top:18px"><div class=row2><span>Masuk sebagai</span><b>${ADMIN()?'Admin':'Petugas'}</b></div>${ADMIN()&&localHas()?`<button class="s blk" onclick="importLocal()">Unggah data dari perangkat ini ke cloud</button>`:''}${ADMIN()?`<button class="s blk" onclick="adSheet()">Hapus otomatis invoice lunas: ${AD().on?'Aktif · '+AD().days+' hari':'Mati'}</button>`:''}<button class="s blk" onclick="AU.signOut()">Keluar</button></div>`;
+const acct=()=>`<div class=card style="display:block;margin-top:18px"><div class=row2><span>Masuk sebagai</span><b>${ADMIN()?'Admin':'Petugas'}</b></div>${ADMIN()?`<div class=row2 style="margin-top:8px"><span>Cadangan terakhir</span><b>${localStorage.lastBackup?dmy(localStorage.lastBackup):'belum pernah'}</b></div><button class="s blk" onclick="kopSheet()">Kop laporan: ${kop().nama?esc(kop().nama):'belum diisi'}</button><button class="s blk" onclick="backupSheet()">Cadangkan data</button><button class="s blk" onclick="$('#rest').click()">Pulihkan dari cadangan</button><button class="s blk" onclick="adSheet()">Hapus otomatis invoice lunas: ${AD().on?'Aktif · '+AD().days+' hari':'Mati'}</button>`:''}${ADMIN()&&localHas()?`<button class="s blk" onclick="importLocal()">Unggah data dari perangkat ini ke cloud</button>`:''}<button class="s blk" onclick="AU.signOut()">Keluar</button></div>`;
 async function importLocal(){const o=JSON.parse(localStorage.db||'null');if(!o)return;
   if(!await ask(`Unggah ${o.inv.length} invoice dan ${Object.keys(o.cus||{}).length} pelanggan dari perangkat ini ke cloud?`))return;wait(1,'Mengunggah data…');
   try{for(const i0 of o.inv){const i={...i0};if(!i.pays)i.pays=i.st&&i.st!='b'?[{d:i.date,m:i.st,a:i.amt,note:i.note||'',pk:i.proof?i.n:''}]:[];
@@ -354,7 +484,7 @@ $('#cam').onchange=$('#fil').onchange=e=>{const fs=[...e.target.files];e.target.
 const jt=i=>dueOf(i)?sd(dueOf(i)):'-',pm=i=>i.st=='t'?'Transfer':i.st=='c'?'Cash':'Transfer + Cash',nm=i=>i.name+(paidOf(i)?` (cicil, total ${rp(i.amt)})`:'');
 async function pdf(r){await need('pdf');
   const{jsPDF}=window.jspdf,doc=new jsPDF({orientation:'landscape',unit:'pt',format:'a4'}),W=842,title='LAPORAN PIUTANG - '+r.a.toUpperCase();
-  doc.setFont('helvetica','bold').setFontSize(18).text(title,W/2,48,{align:'center'});doc.setFont('helvetica','normal').setFontSize(10).text(longDate(),W/2,64,{align:'center'});
+  const off=kopDraw(doc,kop());doc.setFont('helvetica','bold').setFontSize(18).text(title,W/2,48+off,{align:'center'});doc.setFont('helvetica','normal').setFontSize(10).text(longDate(),W/2,64+off,{align:'center'});
   const T=(head,rows,tot,y,paid)=>{doc.setFont('helvetica','bold').setFontSize(11).text(head,36,y);
     const c={halign:'center'},cs=paid?{0:{...c,cellWidth:30},1:{...c,cellWidth:70},4:{...c,cellWidth:36},5:{halign:'right',cellWidth:80},6:{...c,cellWidth:80}}:{0:{...c,cellWidth:30},1:{...c,cellWidth:70},4:{...c,cellWidth:36},5:{...c,cellWidth:36},6:{halign:'right',cellWidth:80}};
     doc.autoTable({startY:y+6,margin:{left:36,right:36,bottom:40},theme:'grid',showFoot:'lastPage',
@@ -363,19 +493,18 @@ async function pdf(r){await need('pdf');
       foot:[paid?[{content:tot,colSpan:5,styles:{halign:'left'}},rp(sum(rows)),'']:[{content:tot,colSpan:6,styles:{halign:'left'}},rp(sum(rows,sisa))]],
       styles:{fontSize:8,cellPadding:2.5,lineColor:60,lineWidth:.4,textColor:0},headStyles:{fillColor:[230,230,245],textColor:0,halign:'center'},footStyles:{fillColor:[240,240,240],textColor:0},columnStyles:cs});
     return doc.lastAutoTable.finalY};
-  let y=T('Belum bayar',r.u,`TOTAL BELUM BAYAR (${r.u.length} invoice)`,92,0);
+  let y=T('Belum bayar',r.u,`TOTAL BELUM BAYAR (${r.u.length} invoice)`,92+off,0);
   if(y+60>555){doc.addPage();y=14}
   y=T('Sudah lunas',r.p,`TOTAL LUNAS (${r.p.length} invoice)`,y+22,1);
   if(y+40>555){doc.addPage();y=20}
   doc.setFont('helvetica','normal').setFontSize(9).text(doc.splitTextToSize(summary(r),770),36,y+16);
-  const n=doc.getNumberOfPages();for(let i=1;i<=n;i++){doc.setPage(i);doc.setFontSize(8).setTextColor(90).text(title,36,576);doc.text(`Halaman ${i} dari ${n}`,W-36,576,{align:'right'})}
+  y=ttd(doc,y+46,kop());const n=doc.getNumberOfPages();for(let i=1;i<=n;i++){doc.setPage(i);doc.setFontSize(8).setTextColor(90).text(title,36,576);doc.text(`Halaman ${i} dari ${n}`,W-36,576,{align:'right'})}
   return doc.output('blob')}
 async function xlsx(r){await need('xls');
   const wb=new ExcelJS.Workbook(),ws=wb.addWorksheet('Laporan',{pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0},views:[{showGridLines:false}]});
   ws.columns=[6,14,30,26,8,18,16].map(width=>({width}));
   const bd={style:'thin',color:{argb:'FF444444'}},B={top:bd,left:bd,bottom:bd,right:bd},fill=c=>({type:'pattern',pattern:'solid',fgColor:{argb:c}}),RP='"Rp "#,##0',dt=s=>new Date(s+'T00:00:00Z');
-  ws.addRow(['LAPORAN PIUTANG - '+r.a.toUpperCase()]);ws.mergeCells('A1:G1');ws.getRow(1).font={bold:true,size:14};ws.getRow(1).alignment={horizontal:'center'};
-  ws.addRow([longDate()]);ws.mergeCells('A2:G2');ws.getRow(2).alignment={horizontal:'center'};ws.addRow([]);
+  xhead(ws,'LAPORAN PIUTANG - '+r.a.toUpperCase(),longDate(),7);
   const S=(head,rows,tot,paid)=>{ws.addRow([head]).font={bold:true};const ac=paid?6:7,AL=paid?'F':'G';
     ws.addRow(['NO','INVOICE','NAMA','ALAMAT','TGL',...(paid?['JUMLAH','PEMBAYARAN']:['JT','JUMLAH'])]).eachCell(c=>{c.font={bold:true};c.fill=fill('FFE6E6F5');c.border=B;c.alignment={horizontal:'center'}});
     const first=ws.rowCount+1;
@@ -385,24 +514,24 @@ async function xlsx(r){await need('xls');
       t=ws.addRow(paid?[tot,'','','','',val,'']:[tot,'','','','','',val]);
     ws.mergeCells(`A${t.number}:${paid?'E':'F'}${t.number}`);t.eachCell(c=>{c.font={bold:true};c.fill=fill('FFF0F0F0');c.border=B});t.getCell(ac).numFmt=RP;ws.addRow([])};
   S('Belum bayar',r.u,`TOTAL BELUM BAYAR (${r.u.length} invoice)`,0);S('Sudah lunas',r.p,`TOTAL LUNAS (${r.p.length} invoice)`,1);
-  const s=ws.addRow([summary(r)]);ws.mergeCells(`A${s.number}:G${s.number}`);s.height=30;s.alignment={wrapText:true,vertical:'top'};
+  const s=ws.addRow([summary(r)]);ws.mergeCells(`A${s.number}:G${s.number}`);s.height=30;s.alignment={wrapText:true,vertical:'top'};xttd(ws,7);
   return new Blob([await wb.xlsx.writeBuffer()],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})}
 async function saveOut(blob,name){const f=blob instanceof File?blob:new File([blob],name,{type:blob.type});
   if(navigator.canShare?.({files:[f]})){try{await navigator.share({files:[f],title:name});return}catch(e){if(e.name=='AbortError')return}}
   const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=name;a.click()}
-const fname=(r,k)=>`Laporan-${r.a.replace(/\W+/g,'-')}-${iso(new Date())}.${k}`;
-const waText=r=>{const L=[`*LAPORAN PIUTANG - ${r.a.toUpperCase()}*`,longDate(),'',`*Belum bayar (${r.u.length})* ${rp(sum(r.u,sisa))}`,
+const fname=(r,k)=>`Laporan${r.fn?'-'+r.fn:''}-${r.a.replace(/\W+/g,'-')}-${iso(new Date())}.${k}`;
+const waText=r=>{if(r.gen)return `*${r.title||'KWITANSI'}*\n${r.sub||''}\n${r.note||''}`;const L=[`*LAPORAN PIUTANG - ${r.a.toUpperCase()}*`,longDate(),'',`*Belum bayar (${r.u.length})* ${rp(sum(r.u,sisa))}`,
   ...r.u.slice(0,10).map((i,k)=>`${k+1}. ${nf(i.n)} ${tc(i.name)} ${rp(sisa(i))}${dueOf(i)?' (JT '+sd(dueOf(i))+')':''}`)];
   if(r.u.length>10)L.push(`…dan ${r.u.length-10} lainnya`);L.push('',`*Lunas (${r.p.length})* ${rp(sum(r.p))}`,'',summary(r));return L.join('\n')};
-function shareSheet(){const r=build(area,D0,D1);
-  $('#dlg').innerHTML=`<h2 style="margin:0 0 4px">Bagikan laporan</h2><small>${esc(r.a)} · ${r.u.length+r.p.length} invoice · A4 landscape</small>
-  <label style="display:block;margin-top:12px">Format</label><div class=seg>${[['pdf','PDF'],['xlsx','Excel'],['both','Keduanya']].map(([k,t])=>`<button class="${FMT==k?'on':''}" onclick="FMT='${k}';shareSheet()">${t}</button>`).join('')}</div>
+let SR=null;function shareSheet(R){const r=SR=R||SR||curReport();
+  $('#dlg').innerHTML=`<h2 style="margin:0 0 4px">Bagikan laporan</h2><small>${esc(r.a)} · ${r.gen?(r.kind=='kwitansi'?'kwitansi A5':r.tables.reduce((s,T)=>s+T.rows.length,0)+' baris · A4 landscape'):(r.u.length+r.p.length)+' invoice · A4 landscape'}</small>
+  ${r.only?'':`<label style="display:block;margin-top:12px">Format</label><div class=seg>${[['pdf','PDF'],['xlsx','Excel'],['both','Keduanya']].map(([k,t])=>`<button class="${FMT==k?'on':''}" onclick="FMT='${k}';shareSheet()">${t}</button>`).join('')}</div>`}
   <button class="p blk" style="height:54px" onclick="makeFiles()">Buat laporan</button>
   <button class="s blk" style="border-color:transparent" onclick="$('#dlg').close()">Batal</button>`;
   if(!$('#dlg').open)$('#dlg').showModal()}
 let FILES=[],REP=null;
-async function makeFiles(){$('#dlg').close();REP=build(area,D0,D1);const kinds=FMT=='both'?['pdf','xlsx']:[FMT];wait(1,'Menyiapkan laporan…');
-  try{FILES=[];for(const k of kinds){const b=k=='pdf'?await pdf(REP):await xlsx(REP);FILES.push(new File([b],fname(REP,k),{type:b.type}))}
+async function makeFiles(){$('#dlg').close();REP=SR||curReport();const kinds=REP.only?[REP.only]:FMT=='both'?['pdf','xlsx']:[FMT];wait(1,'Menyiapkan laporan…');
+  try{FILES=[];for(const k of kinds){const b=await mkFile(REP,k);FILES.push(new File([b],fname(REP,k),{type:b.type}))}
     wait(0);
     $('#dlg').innerHTML=`<h2 style="margin:0 0 4px">Laporan siap</h2>${FILES.map(f=>`<div class=sb>📄 ${esc(f.name)} · ${Math.max(1,Math.round(f.size/1024))} KB</div>`).join('')}
     <button class="p blk" style="height:54px;background:#1f8f55;border-color:#1f8f55" onclick="sendFiles('wa')">Kirim ke WhatsApp</button>
